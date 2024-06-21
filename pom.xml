@@ -89,6 +89,11 @@ under the License.
             <artifactId>flink-connector-jdbc</artifactId>
             <version>3.2.0-1.19</version>
         </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.13</version>
+        </dependency>
 
         <!-- Add logging framework, to produce console output when running in the IDE. -->
         <!-- These dependencies are excluded from the application JAR by default. -->

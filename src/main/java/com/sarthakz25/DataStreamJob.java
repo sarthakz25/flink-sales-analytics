@@ -8,16 +8,23 @@ import dto.Transaction;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 //import org.apache.flink.configuration.Configuration;
 //import org.apache.flink.configuration.GlobalConfiguration;
+import org.apache.flink.connector.elasticsearch.sink.Elasticsearch7SinkBuilder;
 import org.apache.flink.connector.jdbc.JdbcConnectionOptions;
 import org.apache.flink.connector.jdbc.JdbcExecutionOptions;
 import org.apache.flink.connector.jdbc.JdbcSink;
 import org.apache.flink.connector.jdbc.JdbcStatementBuilder;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
+import org.apache.flink.elasticsearch7.shaded.org.apache.http.HttpHost;
+import org.apache.flink.elasticsearch7.shaded.org.elasticsearch.action.index.IndexRequest;
+import org.apache.flink.elasticsearch7.shaded.org.elasticsearch.client.Requests;
+import org.apache.flink.elasticsearch7.shaded.org.elasticsearch.common.xcontent.XContentType;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 import java.sql.Date;
+
+import static utils.JsonUtil.convertTransactionToJson;
 
 public class DataStreamJob {
     private static final String jdbcUrl = "jdbc:postgresql://localhost:5433/postgres";
@@ -169,7 +176,7 @@ public class DataStreamJob {
 
         transactionDataStream.map(
                         transaction -> {
-                            Date transactionDate = new Date(System.currentTimeMillis());
+                            Date transactionDate = new Date(transaction.getTransactionDate().getTime());
                             String category = transaction.getProductCategory();
                             double totalSales = transaction.getTotalAmount();
 
@@ -187,7 +194,7 @@ public class DataStreamJob {
                                 "WHERE sales_per_category.category = EXCLUDED.category " +
                                 "AND sales_per_category.transaction_date = EXCLUDED.transaction_date",
                         (JdbcStatementBuilder<SalesPerCategory>) (preparedStatement, salesPerCategory) -> {
-                            preparedStatement.setDate(1, new Date(System.currentTimeMillis()));
+                            preparedStatement.setDate(1, salesPerCategory.getTransaction_date());
                             preparedStatement.setString(2, salesPerCategory.getCategory());
                             preparedStatement.setDouble(3, salesPerCategory.getTotalSales());
                         },
@@ -197,7 +204,7 @@ public class DataStreamJob {
 
         transactionDataStream.map(
                         transaction -> {
-                            Date transactionDate = new Date(System.currentTimeMillis());
+                            Date transactionDate = new Date(transaction.getTransactionDate().getTime());
                             double totalSales = transaction.getTotalAmount();
 
                             return new SalesPerDay(transactionDate, totalSales);
@@ -210,10 +217,10 @@ public class DataStreamJob {
                         "INSERT INTO sales_per_day(transaction_date, total_sales) " +
                                 "VALUES(?, ?) " +
                                 "ON CONFLICT (transaction_date) DO UPDATE SET " +
-                                "total_sales = EXCLUDED.total_sales " +
+                                "total_sales = sales_per_day.total_sales + EXCLUDED.total_sales " +
                                 "WHERE sales_per_day.transaction_date = EXCLUDED.transaction_date",
                         (JdbcStatementBuilder<SalesPerDay>) (preparedStatement, salesPerDay) -> {
-                            preparedStatement.setDate(1, new Date(System.currentTimeMillis()));
+                            preparedStatement.setDate(1, salesPerDay.getTransactionDate());
                             preparedStatement.setDouble(2, salesPerDay.getTotalSales());
                         },
                         executionOptions,
@@ -222,7 +229,7 @@ public class DataStreamJob {
 
         transactionDataStream.map(
                         transaction -> {
-                            Date transactionDate = new Date(System.currentTimeMillis());
+                            Date transactionDate = new Date(transaction.getTransactionDate().getTime());
                             int year = transactionDate.toLocalDate().getYear();
                             int month = transactionDate.toLocalDate().getMonth().getValue();
                             double totalSales = transaction.getTotalAmount();
@@ -248,6 +255,22 @@ public class DataStreamJob {
                         executionOptions,
                         connectionOptions
                 )).name("Insert into sales per month sink");
+
+        transactionDataStream.sinkTo(
+                new Elasticsearch7SinkBuilder<Transaction>()
+                        .setHosts(new HttpHost("localhost", 9200, "http"))
+                        .setEmitter((transaction, runtimeContext, requestIndexer) -> {
+                            String json = convertTransactionToJson(transaction);
+
+                            IndexRequest indexRequest = Requests.indexRequest()
+                                    .index("transactions")
+                                    .id(transaction.getTransactionId())
+                                    .source(json, XContentType.JSON);
+
+                            requestIndexer.add(indexRequest);
+                        })
+                        .build()
+        ).name("Elasticsearch sink");
 
         // Execute program, beginning computation.
         env.execute("Flink Realtime Streaming");

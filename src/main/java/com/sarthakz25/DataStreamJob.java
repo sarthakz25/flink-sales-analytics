@@ -6,8 +6,6 @@ import dto.SalesPerDay;
 import dto.SalesPerMonth;
 import dto.Transaction;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
-//import org.apache.flink.configuration.Configuration;
-//import org.apache.flink.configuration.GlobalConfiguration;
 import org.apache.flink.connector.elasticsearch.sink.Elasticsearch7SinkBuilder;
 import org.apache.flink.connector.jdbc.JdbcConnectionOptions;
 import org.apache.flink.connector.jdbc.JdbcExecutionOptions;
@@ -27,21 +25,14 @@ import java.sql.Date;
 import static utils.JsonUtil.convertTransactionToJson;
 
 public class DataStreamJob {
-    private static final String jdbcUrl = "jdbc:postgresql://localhost:5433/postgres";
-    private static final String username = "postgres";
-    private static final String password = "sar@123";
+    private static final String jdbcUrl = System.getenv("JDBC_URL");
+    private static final String username = System.getenv("DB_USERNAME");
+    private static final String password = System.getenv("DB_PASSWORD");
 
     public static void main(String[] args) throws Exception {
         // Sets up the execution environment, which is the main entry point
         // to building Flink applications.
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-
-        // load configuration from external file
-//        Configuration config = GlobalConfiguration.loadConfiguration();
-
-//        String jdbcUrl = config.getString("jdbc.url", null);
-//        String username = config.getString("jdbc.username", null);
-//        String password = config.getString("jdbc.password", null);
 
         String topic = "sales_transactions";
 
